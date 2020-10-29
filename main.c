@@ -29,6 +29,7 @@ uint32_t g_command_len;
 uint8_t g_charactor;
 uint8_t g_first,g_second;
 uint8_t blinkflag;
+int g_flag=0;
 
 char g_command[SIZE_COMMAND];
 char g_buff_command[SIZE_COMMAND];
@@ -41,7 +42,7 @@ volatile int g_alarm_H, g_alarm_M, g_alarm_S;
 
 uint32_t g_ui32SysClock;
 uint32_t g_rtc_sec;
-uint32_t g_rtc_ala;
+uint32_t g_rtc_ala=0;
 
 //*****************************************************************************
 //
@@ -59,6 +60,20 @@ __error__(char *pcFilename, uint32_t ui32Line)
 void Timer0IntHandler(void) {
     TimerIntClear(TIMER0_BASE, TIMER_RTC_MATCH);
 
+}
+
+void SwitchIntHandler(void){
+
+
+    GPIOIntClear(GPIO_PORTJ_BASE,GPIO_PIN_0);
+    GPIOIntClear(GPIO_PORTJ_BASE,GPIO_PIN_1);
+
+    if(GPIOPinRead(GPIO_PORTJ_BASE, GPIO_PIN_0)==0){
+        g_flag = 1;
+    }else if(GPIOPinRead(GPIO_PORTJ_BASE, GPIO_PIN_1)==0){
+        g_flag = 2;
+        TimerLoadSet(TIMER0_BASE,TIMER_A,g_rtc_ala);
+    }
 }
 
 void ConfigureUART(void)
@@ -92,13 +107,7 @@ int GetCommand(){          //  알람 시간이     시간 : 분  : 초  로 입력이 됨
     // 이 예제에서는 g_command에서  두번째 ':' 있는 부분을 찾아서, 두번째 ':'가 있는  포인터(주소)를 알려줌
     // https://dojang.io/mod/page/view.php?id=370
     g_second = strrchr(g_command,':')-g_command;  //g_command에서 몇개가 알람 (h + m) 인지 파악
-    if(g_first==g_second){
 
-//        g_reserve=false;
-        TimerMatchSet(TIMER0_BASE, TIMER_A, 0xFFFFFFFF);
-        g_alarm_H=g_alarm_M=g_alarm_S=0;
-        return 0;
-    }
 
     //  alarm input frame is   h   : m  : s  --> 현재에서 얼마 후에 알람을 울릴지를 넣음
     //  getting hour and minute and second for alarm
@@ -115,11 +124,7 @@ int GetCommand(){          //  알람 시간이     시간 : 분  : 초  로 입력이 됨
         s *= 10;                    // 이 부분은  Tera Term 에서 123(문자임)을
         s += g_command[i] - '0';    // 어떻게 숫자 123으로 할 것인지 처리한 코드임
     }
-    g_rtc_ala=(h*3600)+(m*60)+s;    // match register에 넣을 값
-    TimerMatchSet(TIMER0_BASE, TIMER_A, g_rtc_sec+g_rtc_ala);
-    g_alarm_H = (g_rtc_sec+g_rtc_ala)/3600;     // 알람이 일어나는 시간을 계산
-    g_alarm_M = ((g_rtc_sec+g_rtc_ala) / 60) % 3600;  // 알람이 일어나는 분을 계산
-    g_alarm_S = (g_rtc_sec+g_rtc_ala) % 60;     // 알람이 일어나는 초를 계산
+    g_rtc_ala=(h*3600)+(m*60)+s;    // 변경될 시간값
 
     return 1;
 }
@@ -207,6 +212,9 @@ int main(void)
 
     GPIODirModeSet(GPIO_PORTJ_BASE, GPIO_PIN_0|GPIO_PIN_1, GPIO_DIR_MODE_IN);
     GPIOPadConfigSet(GPIO_PORTJ_BASE, GPIO_PIN_0 | GPIO_PIN_1, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD_WPU);
+
+    GPIOIntTypeSet(GPIO_PORTJ_BASE, GPIO_PIN_0|GPIO_PIN_1,GPIO_FALLING_EDGE);
+    GPIOIntEnable(GPIO_PORTJ_BASE, GPIO_PIN_0|GPIO_PIN_1);
     IntEnable(INT_GPIOJ);
 
 
@@ -220,22 +228,36 @@ int main(void)
         if((TimerValueGet(TIMER0_BASE, TIMER_A)%60)!=g_var_S){
             g_rtc_sec = TimerValueGet(TIMER0_BASE, TIMER_A);
             g_var_S = g_rtc_sec % 60;
-            g_var_M = (g_rtc_sec / 60) % 3600;
+            g_var_M = (g_rtc_sec % 3600) / 60;
             g_var_H = g_rtc_sec / 3600;
 
             if(g_var_S%2 == 0){
-                UARTprintf("\033[2A");
+                UARTprintf("\r\033[4A");
                 UARTprintf("\033[J");
 //              UARTprintf("\r\033[7A");    // Cursor up by 1
                 UARTprintf("%d:%d  \n", g_var_H, g_var_M);
                 UARTprintf("%d년 %d월 %d일 (Thus)\n", g_var_Year, g_var_Month, g_var_Day );
+                if(g_flag==1){
+                    UARTprintf("Enter the time(hour:minute:second)>\n");
+                }
+                if(g_flag==2){
+                    UARTprintf("Time Configured");
+                }
+                UARTprintf("%s",g_command);
             }
             else {
-                UARTprintf("\033[2A");
+                UARTprintf("\r\033[4A");
                 UARTprintf("\033[J");
 //              UARTprintf("\r\033[7A");    // Cursor up by 1
                 UARTprintf("%d %d  \n", g_var_H, g_var_M);
                 UARTprintf("%d년 %d월 %d일 (Thus)\n", g_var_Year, g_var_Month, g_var_Day );
+                if(g_flag==1){
+                    UARTprintf("Enter the time(hour:minute:second)>\n");
+                }
+                if(g_flag==2){
+                    UARTprintf("Time Configured");
+                }
+                UARTprintf("%s",g_command);
             }
         }
         RTC_clock(200);
